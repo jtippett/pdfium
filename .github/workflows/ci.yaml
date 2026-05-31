@@ -19,9 +19,6 @@ jobs:
         abi:
           - glibc
           - musl
-        otp:
-          - 28
-          - 29
         platform:
           - amd64
 
@@ -46,7 +43,6 @@ jobs:
               --ref pull/${{ github.ref_name }} \
               --platform-name linux/${{ matrix.platform }} \
               --abi ${{ matrix.abi }} \
-              --otp ${{ matrix.otp }} \
               --github-token env://GITHUB_TOKEN \
             export \
               --path . \
@@ -57,7 +53,7 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.platform }}-${{ matrix.abi }}-otp${{ matrix.otp }}
+          name: ${{ matrix.platform }}-${{ matrix.abi }}
           path: pdfium-nif-*
 
   build-for-linux-arm64:
@@ -68,9 +64,6 @@ jobs:
         abi:
           - glibc
           - musl
-        otp:
-          - 28
-          - 29
         platform:
           - arm64
 
@@ -95,7 +88,6 @@ jobs:
               --ref pull/${{ github.ref_name }} \
               --platform-name linux/${{ matrix.platform }} \
               --abi ${{ matrix.abi }} \
-              --otp ${{ matrix.otp }} \
               --github-token env://GITHUB_TOKEN \
             export \
               --path . \
@@ -106,7 +98,7 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.platform }}-${{ matrix.abi }}-otp${{ matrix.otp }}
+          name: ${{ matrix.platform }}-${{ matrix.abi }}
           path: pdfium-nif-*
 
   build-for-macos:
@@ -129,8 +121,6 @@ jobs:
           pushd custom
           ./build-for-mac.sh macos arm64 28.4.2
           ./build-for-mac.sh macos x86_64 28.4.2
-          ./build-for-mac.sh macos arm64 29.0.1
-          ./build-for-mac.sh macos x86_64 29.0.1
           popd
 
       - name: Upload files
