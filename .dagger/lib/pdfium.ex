@@ -90,7 +90,7 @@ defmodule Pdfium do
     # |> Dagger.Container.with_exec(~w"gh pr merge #{new_branch_name} --auto --delete-branch --rebase")
   end
 
-  def collect_build_info(src_dir, platform_name, abi) do
+  def collect_build_info(src_dir, platform_name, abi, otp) do
     {erlang_platform_name, pdfium_platform_name} =
       case platform_name do
         "linux/arm64" -> {"aarch64", "arm64"}
@@ -113,11 +113,8 @@ defmodule Pdfium do
       |> Dagger.Directory.file("VERSION")
       |> Dagger.File.contents()
 
-    {build_image_name, nif_version} =
-      case abi do
-        "glibc" -> {"hexpm/elixir:1.19.5-erlang-28.4.2-ubuntu-noble-20260410", "2.17"}
-        "musl" -> {"hexpm/elixir:1.19.5-erlang-28.4.2-alpine-3.23.4", "2.17"}
-      end
+    build_image_name = image_for(otp, abi)
+    nif_version = nif_version_for(otp)
 
     pdfium_download_url = "https://github.com/bblanchon/pdfium-binaries/releases/download/#{URI.encode_www_form(pdfium_tag)}/pdfium-#{pdfium_abi_name}-#{pdfium_platform_name}.tgz"
     output_filename = "pdfium-nif-#{nif_version}-#{erlang_platform_name}-#{erlang_abi_name}-#{package_version}.tar.gz"
@@ -129,12 +126,12 @@ defmodule Pdfium do
     }
   end
 
-  defn precompile(src_dir: Dagger.Directory.t(), platform_name: String.t(), abi: String.t()) :: Dagger.File.t() do
+  defn precompile(src_dir: Dagger.Directory.t(), platform_name: String.t(), abi: String.t(), otp: String.t()) :: Dagger.File.t() do
     {
       build_image_name,
       pdfium_download_url,
       output_filename
-    } = collect_build_info(src_dir, platform_name, abi)
+    } = collect_build_info(src_dir, platform_name, abi, otp)
 
     otp_directory_name="/usr/local/lib/erlang"
 
@@ -213,12 +210,12 @@ defmodule Pdfium do
     # Doing so could potentially make it possible to enter a container in "debug" mode
   end
 
-  defn test(precompiled: Dagger.File.t(), platform_name: String.t(), abi: String.t()) :: Dagger.File.t() do
+  defn test(precompiled: Dagger.File.t(), platform_name: String.t(), abi: String.t(), otp: String.t()) :: Dagger.File.t() do
     {:ok, filename} = Dagger.File.name(precompiled)
     precompiled_path = "/test/#{filename}"
 
     dag()
-    |> with_test_image(platform_name, abi)
+    |> with_test_image(platform_name, abi, otp)
     |> Dagger.Container.with_workdir("/test")
     |> Dagger.Container.with_file(precompiled_path, precompiled)
     |> Dagger.Container.with_exec(~w"tar --extract --directory=/test/ --file=#{precompiled_path}")
@@ -228,13 +225,13 @@ defmodule Pdfium do
     |> Dagger.Container.file(precompiled_path)
   end
 
-  defn ci(ref: String.t(), platform_name: String.t(), abi: String.t(), github_token: Dagger.Secret.t()) :: Dagger.File.t() do
+  defn ci(ref: String.t(), platform_name: String.t(), abi: String.t(), otp: String.t(), github_token: Dagger.Secret.t()) :: Dagger.File.t() do
     dag()
     |> Dagger.Client.git("https://github.com/gmile/pdfium", with_auth_token: github_token)
     |> Dagger.GitRepository.ref(ref)
     |> Dagger.GitRef.tree()
-    |> precompile(platform_name, abi)
-    |> test(platform_name, abi)
+    |> precompile(platform_name, abi, otp)
+    |> test(platform_name, abi, otp)
   end
 
   defn create_release(pr: String.t(), actor: String.t(), github_token: Dagger.Secret.t(), hex_api_key: Dagger.Secret.t()) :: Dagger.Container.t() do
@@ -384,18 +381,30 @@ defmodule Pdfium do
     |> Dagger.Container.with_exec(~w"apk add build-base tar jq coreutils")
   end
 
-  defp with_test_image(dag, platform_name, "glibc") do
+  defp with_test_image(dag, platform_name, "glibc", otp) do
     dag
     |> Dagger.Client.container(platform: platform_name)
-    |> Dagger.Container.from("hexpm/elixir:1.19.5-erlang-28.4.2-ubuntu-noble-20260410")
+    |> Dagger.Container.from(image_for(otp, "glibc"))
     |> Dagger.Container.with_exec(~w"apt update")
     |> Dagger.Container.with_exec(~w"apt install tar")
   end
 
-  defp with_test_image(dag, platform_name, "musl") do
+  defp with_test_image(dag, platform_name, "musl", otp) do
     dag
     |> Dagger.Client.container(platform: platform_name)
-    |> Dagger.Container.from("hexpm/elixir:1.19.5-erlang-28.4.2-alpine-3.23.4")
+    |> Dagger.Container.from(image_for(otp, "musl"))
     |> Dagger.Container.with_exec(~w"apk add tar")
   end
+
+  # Build/test image and NIF version per OTP major. Keep the OTP majors here in
+  # sync with custom/builds.json (macOS) and the matrix in .github/workflows/ci.yaml.
+  # OTP 28 uses Elixir 1.19.5; OTP 29 uses Elixir 1.20.0 (the lowest stable Elixir
+  # paired with OTP 29 in hexpm's published images). All tags verified to exist.
+  defp image_for("28", "glibc"), do: "hexpm/elixir:1.19.5-erlang-28.4.2-ubuntu-noble-20260410"
+  defp image_for("28", "musl"), do: "hexpm/elixir:1.19.5-erlang-28.4.2-alpine-3.23.4"
+  defp image_for("29", "glibc"), do: "hexpm/elixir:1.20.0-erlang-29.0.1-ubuntu-noble-20260509.1"
+  defp image_for("29", "musl"), do: "hexpm/elixir:1.20.0-erlang-29.0.1-alpine-3.23.4"
+
+  defp nif_version_for("28"), do: "2.17"
+  defp nif_version_for("29"), do: "2.18"
 end
