@@ -225,11 +225,8 @@ defmodule Pdfium do
     |> Dagger.Container.file(precompiled_path)
   end
 
-  defn ci(ref: String.t(), platform_name: String.t(), abi: String.t(), otp: String.t(), github_token: Dagger.Secret.t()) :: Dagger.File.t() do
-    dag()
-    |> Dagger.Client.git("https://github.com/gmile/pdfium", with_auth_token: github_token)
-    |> Dagger.GitRepository.ref(ref)
-    |> Dagger.GitRef.tree()
+  defn ci(src_dir: Dagger.Directory.t(), platform_name: String.t(), abi: String.t(), otp: String.t()) :: Dagger.File.t() do
+    src_dir
     |> precompile(platform_name, abi, otp)
     |> test(platform_name, abi, otp)
   end
